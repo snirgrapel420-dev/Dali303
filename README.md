@@ -13,7 +13,7 @@ Requirements: CMake ≥ 3.22, a C++17 compiler (Visual Studio 2022 on Windows, X
 
 ```bash
 # Windows (VS 2022)
-cmake -B build -G "Visual Studio 17 2022" -A x64
+cmake -B build -G "Visual Studio 17 2022" -A x64   # or "Visual Studio 18 2026" (CMake 4.2+)
 cmake --build build --config Release
 
 # macOS (universal arm64 + x86_64)
@@ -27,6 +27,20 @@ Results:
 - VST3: `build/Dali303_artefacts/Release/VST3/Dali303.vst3`
   → copy to `C:\Program Files\Common Files\VST3\` (Windows) or `~/Library/Audio/Plug-Ins/VST3/` (macOS), then rescan plug-ins in Ableton.
 - Standalone: `build/Dali303_artefacts/Release/Standalone/`
+
+### GitHub Actions (automatic builds)
+
+`.github/workflows/build.yml` builds everything on every push — no local compiler needed:
+
+1. **DSP tests** (Linux): builds `DaliRender`, runs the engine suite, the preset/DISCOVER stress test and the CPU
+   benchmark. Fails on NaN/Inf, clipping above 0 dBFS or non-deterministic LIFE. WAV renders are uploaded.
+2. **Build** (Windows x64 + macOS universal): VST3 + Standalone, zipped as `Dali303-Windows` / `Dali303-macOS`
+   under the run's *Artifacts*. Then **pluginval** at strictness 10 (state restore, automation, sample rates,
+   block sizes, threading); its log is uploaded too.
+3. **Release**: push a tag (`git tag v0.1.0 && git push --tags`) → a GitHub Release with both zips.
+
+macOS builds are ad-hoc signed, not notarised. If macOS blocks the plug-in after downloading:
+`xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/VST3/Dali303.vst3`
 
 Options:
 - `-DDALI303_DEV_MODE=ON` — Developer Test Mode in the GUI (engine isolation selector + live CPU %).

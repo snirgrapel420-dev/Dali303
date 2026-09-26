@@ -34,7 +34,7 @@ private:
     enum Row { StepRow, NoteRow, GateRow, AccentRow, SlideRow, NumRows, NoRow = -1 };
 
     juce::Rectangle<float> cell (int row, int col) const;
-    std::pair<int, int> hitTest (juce::Point<float>) const;
+    std::pair<int, int> cellAt (juce::Point<float>) const;
     void commit();
     void transpose (int semis);
     void shift (int dir);

@@ -142,7 +142,7 @@ juce::Rectangle<float> SequencerPanel::cell (int row, int col) const
     return { x, rowY[(size_t) row], colW, rowH[(size_t) row] };
 }
 
-std::pair<int, int> SequencerPanel::hitTest (juce::Point<float> p) const
+std::pair<int, int> SequencerPanel::cellAt (juce::Point<float> p) const
 {
     for (int row = NoteRow; row < NumRows; ++row)
         for (int col = 0; col < Pattern::kMaxSteps; ++col)
@@ -259,7 +259,7 @@ void SequencerPanel::paint (juce::Graphics& g)
 // ---------------------------------------------------------------------------
 void SequencerPanel::mouseDown (const juce::MouseEvent& e)
 {
-    const auto [row, col] = hitTest (e.position);
+    const auto [row, col] = cellAt (e.position);
     dragRow = row; dragCol = col;
     if (row == NoRow) return;
 
@@ -312,7 +312,7 @@ void SequencerPanel::mouseUp (const juce::MouseEvent&)  { dragRow = NoRow; }
 
 void SequencerPanel::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& w)
 {
-    const auto [row, col] = hitTest (e.position);
+    const auto [row, col] = cellAt (e.position);
     if (row != NoteRow || w.deltaY == 0.0f) return;
     const int step = e.mods.isShiftDown() ? 12 : 1;
     const int n = juce::jlimit (kMinNote, kMaxNote, (int) pattern.steps[(size_t) col].note + (w.deltaY > 0 ? step : -step));
@@ -322,7 +322,7 @@ void SequencerPanel::mouseWheelMove (const juce::MouseEvent& e, const juce::Mous
 
 void SequencerPanel::mouseMove (const juce::MouseEvent& e)
 {
-    const auto [row, col] = hitTest (e.position);
+    const auto [row, col] = cellAt (e.position);
     if (row != hoverRow || col != hoverCol) { hoverRow = row; hoverCol = col; repaint(); }
 }
 

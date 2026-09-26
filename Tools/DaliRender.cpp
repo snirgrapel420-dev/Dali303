@@ -34,6 +34,8 @@ namespace
 {
 using Automation = std::function<void (EngineParams&, double seconds)>;
 
+int g_failures = 0;   // non-zero exit code for CI
+
 void enableFlushToZero()
 {
    #if defined(__SSE__) || defined(_M_X64)
@@ -206,6 +208,7 @@ Pattern demoPattern()
 void report (const char* name, const std::vector<float>& d)
 {
     const auto s = analyse (d);
+    if (s.nonFinite || s.peak > 1.0f) ++g_failures;     // NaN/Inf or clipping above 0 dBFS
     std::printf ("  %-34s peak %6.1f dBFS   rms %6.1f dBFS   %s\n", name, toDb (s.peak), toDb (s.rms),
                  s.nonFinite ? "!! NON-FINITE SAMPLES !!" : "ok");
 }
@@ -272,6 +275,7 @@ void runPresets (const std::string& dir)
         worstPeak = std::max (worstPeak, toDb (st.peak));
         minRms = std::min (minRms, toDb (st.rms)); maxRms = std::max (maxRms, toDb (st.rms));
     }
+    if (bad > 0 || worstPeak > 0.0f) ++g_failures;
     std::printf ("  worst peak %.1f dBFS, rms range %.1f .. %.1f dBFS, non-finite renders: %d\n", worstPeak, minRms, maxRms, bad);
 }
 } // namespace
@@ -281,7 +285,7 @@ int main (int argc, char** argv)
     enableFlushToZero();
     std::string dir = argc > 1 ? argv[1] : "";
     if (dir == "--bench") { runBench(); return 0; }
-    if (dir == "--presets") { runPresets (argc > 2 ? argv[2] : ""); return 0; }
+    if (dir == "--presets") { runPresets (argc > 2 ? argv[2] : ""); return g_failures == 0 ? 0 : 1; }
 
     const double sr = 48000.0;
     std::printf ("Dali303 DSP test suite @ %.0f Hz\n\n", sr);
@@ -347,7 +351,9 @@ int main (int argc, char** argv)
         auto a = renderPattern (sr, p, DevMode::Full, demoPattern(), 135.0, 8.0);
         auto b = renderPattern (sr, p, DevMode::Full, demoPattern(), 135.0, 8.0);
         save (dir, "12_life_100", a, sr);
-        std::printf ("  deterministic: %s\n", std::memcmp (a.data(), b.data(), a.size() * sizeof (float)) == 0 ? "YES" : "NO !!");
+        const bool same = std::memcmp (a.data(), b.data(), a.size() * sizeof (float)) == 0;
+        if (! same) ++g_failures;
+        std::printf ("  deterministic: %s\n", same ? "YES" : "NO !!");
     }
 
     std::printf ("[Aliasing]  inharmonic energy, high note, full res, full drive (lower = cleaner)\n");
@@ -393,5 +399,7 @@ int main (int argc, char** argv)
     }
 
     runBench();
-    return 0;
+    if (g_failures > 0) std::printf ("\nFAILED: %d check(s)\n", g_failures);
+    else                std::printf ("\nALL CHECKS PASSED\n");
+    return g_failures == 0 ? 0 : 1;
 }

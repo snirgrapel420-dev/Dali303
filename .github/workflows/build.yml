@@ -104,7 +104,29 @@ jobs:
       # -k 0: keep going after the first failure, so one run shows ALL compile errors
       - name: Build
         shell: pwsh
-        run: cmake --build build --parallel 4 -- -k 0
+        run: |
+          cmake --build build --parallel 4 -- -k 0 2>&1 | Tee-Object -FilePath build-log.txt
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      # On failure: collect every compiler error in one place (also shown on the run's Summary page)
+      - name: Compile errors
+        if: failure()
+        shell: pwsh
+        run: |
+          if (-not (Test-Path build-log.txt)) { exit 0 }
+          $hits = Select-String -Path build-log.txt -Pattern '(: error|: fatal error|error C\d+|error LNK\d+|FAILED:)' -Context 2,1
+          $text = ($hits | ForEach-Object { $_.Context.PreContext + $_.Line + $_.Context.PostContext + '----' }) -join "`n"
+          Write-Host "================ COMPILE ERRORS ($(@($hits).Count)) ================"
+          Write-Host $text
+          "## Compile errors (${{ matrix.name }})`n``````n$text`n``````" | Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY
+
+      - name: Upload build log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log-${{ matrix.name }}
+          path: build-log.txt
+          if-no-files-found: ignore
 
       - name: Ad-hoc code sign (macOS)
         if: runner.os == 'macOS'

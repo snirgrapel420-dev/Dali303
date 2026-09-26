@@ -1,0 +1,167 @@
+name: Build Dali303
+
+on:
+  push:
+    branches: [ main, master ]
+    tags: [ 'v*' ]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  BUILD_TYPE: Release
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1. DSP tests: the JUCE-free engine, fast. Fails on NaN/Inf, clipping,
+  #    non-deterministic LIFE, or DISCOVER going out of bounds.
+  # ---------------------------------------------------------------------------
+  dsp-tests:
+    name: DSP tests (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build DaliRender
+        run: |
+          g++ -std=c++17 -O2 -Wall -Wextra -ISource \
+            Tools/DaliRender.cpp Source/DSP/AcidEngine.cpp Source/Sequencer/Pattern.cpp \
+            Source/Presets/FactoryPresets.cpp Source/Presets/Discover.cpp -o DaliRender
+
+      - name: Engine test suite
+        run: mkdir -p renders && ./DaliRender renders
+
+      - name: Factory presets + DISCOVER stress test
+        run: mkdir -p renders/presets && ./DaliRender --presets renders/presets
+
+      - name: CPU benchmark
+        run: ./DaliRender --bench
+
+      - name: Upload test renders
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-renders
+          path: renders/
+          retention-days: 14
+
+  # ---------------------------------------------------------------------------
+  # 2. Plugin build: VST3 + Standalone on Windows and macOS (universal).
+  # ---------------------------------------------------------------------------
+  build:
+    name: Build (${{ matrix.name }})
+    needs: dsp-tests
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows
+            os: windows-latest
+            generator: 'Visual Studio 17 2022'
+            extra: '-A x64'
+            pluginval_zip: pluginval_Windows.zip
+            pluginval_bin: ./pluginval.exe
+          - name: macOS
+            os: macos-14
+            generator: Ninja
+            extra: '-DCMAKE_BUILD_TYPE=Release'
+            pluginval_zip: pluginval_macOS.zip
+            pluginval_bin: ./pluginval.app/Contents/MacOS/pluginval
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Ninja (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ninja
+
+      - name: Cache JUCE download
+        uses: actions/cache@v4
+        with:
+          path: .deps
+          key: juce-${{ runner.os }}-${{ hashFiles('CMakeLists.txt') }}
+
+      - name: Configure
+        shell: bash
+        run: >
+          cmake -B build -G "${{ matrix.generator }}" ${{ matrix.extra }}
+          -DFETCHCONTENT_BASE_DIR="${{ github.workspace }}/.deps"
+          -DDALI303_BUILD_TOOLS=OFF
+
+      - name: Build
+        shell: bash
+        run: cmake --build build --config ${{ env.BUILD_TYPE }} --parallel 4
+
+      - name: Ad-hoc code sign (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          codesign --force --deep --sign - "build/Dali303_artefacts/Release/VST3/Dali303.vst3"
+          codesign --force --deep --sign - "build/Dali303_artefacts/Release/Standalone/Dali303.app"
+
+      - name: Package
+        shell: bash
+        run: |
+          mkdir -p dist
+          ART="build/Dali303_artefacts/Release"
+          cp README.md dist/
+          if [ "$RUNNER_OS" == "Windows" ]; then
+            cp -r "$ART/VST3/Dali303.vst3" dist/
+            cp "$ART/Standalone/Dali303.exe" dist/
+            (cd dist && 7z a -tzip ../Dali303-Windows.zip .)
+          else
+            cp -R "$ART/VST3/Dali303.vst3" dist/
+            cp -R "$ART/Standalone/Dali303.app" dist/
+            (cd dist && ditto -c -k --keepParent . ../Dali303-macOS.zip)
+          fi
+
+      - name: Upload build
+        uses: actions/upload-artifact@v4
+        with:
+          name: Dali303-${{ matrix.name }}
+          path: Dali303-${{ matrix.name }}.zip
+
+      # pluginval: the standard plug-in stress test (state save/restore, automation,
+      # sample rates, block sizes, threading). Runs after upload, so the build is
+      # always downloadable even if validation finds something.
+      - name: pluginval
+        shell: bash
+        run: |
+          curl -fLO "https://github.com/Tracktion/pluginval/releases/latest/download/${{ matrix.pluginval_zip }}"
+          7z x -y ${{ matrix.pluginval_zip }} > /dev/null || unzip -o ${{ matrix.pluginval_zip }}
+          ${{ matrix.pluginval_bin }} --strictness-level 10 --validate-in-process \
+            --timeout-ms 600000 --output-dir pluginval-logs \
+            "build/Dali303_artefacts/Release/VST3/Dali303.vst3"
+
+      - name: Upload pluginval log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pluginval-log-${{ matrix.name }}
+          path: pluginval-logs/
+          if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------------
+  # 3. Release: push a tag like v0.1.0 -> GitHub Release with both zips.
+  # ---------------------------------------------------------------------------
+  release:
+    name: Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: Dali303-*
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            Dali303-Windows.zip
+            Dali303-macOS.zip
+          generate_release_notes: true

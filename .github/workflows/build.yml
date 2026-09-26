@@ -60,19 +60,27 @@ jobs:
         include:
           - name: Windows
             os: windows-latest
-            generator: 'Visual Studio 17 2022'
-            extra: '-A x64'
             pluginval_zip: pluginval_Windows.zip
             pluginval_bin: ./pluginval.exe
           - name: macOS
             os: macos-14
-            generator: Ninja
-            extra: '-DCMAKE_BUILD_TYPE=Release'
             pluginval_zip: pluginval_macOS.zip
             pluginval_bin: ./pluginval.app/Contents/MacOS/pluginval
 
     steps:
       - uses: actions/checkout@v4
+
+      # Ninja + the MSVC environment instead of a "Visual Studio 17 2022" generator:
+      # works with whatever Visual Studio the runner image ships (2022, 2026, ...).
+      - name: MSVC environment (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Install Ninja (Windows)
+        if: runner.os == 'Windows'
+        run: choco install ninja -y --no-progress
 
       - name: Install Ninja (macOS)
         if: runner.os == 'macOS'
@@ -84,16 +92,18 @@ jobs:
           path: .deps
           key: juce-${{ runner.os }}-${{ hashFiles('CMakeLists.txt') }}
 
+      # pwsh (not bash) so Git-Bash's /usr/bin/link can't shadow the MSVC linker
       - name: Configure
-        shell: bash
+        shell: pwsh
         run: >
-          cmake -B build -G "${{ matrix.generator }}" ${{ matrix.extra }}
+          cmake -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }}
           -DFETCHCONTENT_BASE_DIR="${{ github.workspace }}/.deps"
           -DDALI303_BUILD_TOOLS=OFF
 
       - name: Build
-        shell: bash
-        run: cmake --build build --config ${{ env.BUILD_TYPE }} --parallel 4
+        shell: pwsh
+        run: cmake --build build --parallel 4
 
       - name: Ad-hoc code sign (macOS)
         if: runner.os == 'macOS'

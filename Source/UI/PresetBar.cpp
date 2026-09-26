@@ -124,7 +124,7 @@ void PresetBar::showPresetMenu()
     }
 
     menu.addSeparator();
-    constexpr int rescanId = 100000, folderId = 100001;
+    static constexpr int rescanId = 100000, folderId = 100001;
     menu.addItem (rescanId, "Rescan user presets");
     menu.addItem (folderId, "Open user preset folder");
 

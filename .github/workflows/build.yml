@@ -101,9 +101,10 @@ jobs:
           -DFETCHCONTENT_BASE_DIR="${{ github.workspace }}/.deps"
           -DDALI303_BUILD_TOOLS=OFF
 
+      # -k 0: keep going after the first failure, so one run shows ALL compile errors
       - name: Build
         shell: pwsh
-        run: cmake --build build --parallel 4
+        run: cmake --build build --parallel 4 -- -k 0
 
       - name: Ad-hoc code sign (macOS)
         if: runner.os == 'macOS'

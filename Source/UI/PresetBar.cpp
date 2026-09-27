@@ -120,7 +120,7 @@ void PresetBar::showPresetMenu()
                 isUser |= ! entries[(size_t) i].isFactory;
             }
         if (isUser && ! addedUserHeader) { menu.addSeparator(); menu.addSectionHeader ("USER"); addedUserHeader = true; }
-        menu.addSubMenu (cat, sub, true, std::unique_ptr<const juce::Drawable>(), containsCurrent);
+        menu.addSubMenu (cat, sub, true, nullptr, containsCurrent);
     }
 
     menu.addSeparator();

@@ -110,7 +110,7 @@ void SequencerPanel::resized()
     auto top = r.removeFromTop (28);
 
     // right-hand tools
-    auto tool = [&top] (juce::Button& b, int w) { b.setBounds (top.removeFromRight (w).reduced (0, 1)); top.removeFromRight (6); };
+    auto tool = [&top] (juce::Component& b, int w) { b.setBounds (top.removeFromRight (w).reduced (0, 1)); top.removeFromRight (6); };
     tool (upOct, 50); tool (downOct, 50);
     top.removeFromRight (6);
     tool (upSemi, 36); tool (downSemi, 36);

@@ -232,9 +232,22 @@ CircuitFrame AcidEngine::computeFrame (float cutoffOct, float res, float drive, 
     return f;
 }
 
+/** Output protection: transparent below -1 dBFS, then a smooth knee that never
+    exceeds 0 dBFS. Only pathological settings ever reach it (all factory presets
+    and DISCOVER results peak well below the knee). */
+static inline float protect (float x) noexcept
+{
+    constexpr float knee = 0.891f;                    // -1 dBFS
+    const float a = std::abs (x);
+    if (a <= knee) return x;
+    const float y = knee + (1.0f - knee) * std::tanh ((a - knee) / (1.0f - knee));
+    return x < 0.0f ? -y : y;
+}
+
 void AcidEngine::process (float* out, int numSamples) noexcept
 {
     const float lifeAmt = devMode == DevMode::NoLife ? 0.0f : params.life;
+    const float lifeStr = LifeEngine::strength (lifeAmt);
     const bool oscOnly  = devMode == DevMode::OscillatorOnly;
     const bool noDrive  = devMode == DevMode::NoDrive;
 
@@ -282,19 +295,20 @@ void AcidEngine::process (float* out, int numSamples) noexcept
             oct += envMod * 5.5f * mods.envScale * meg;                       // filter envelope
             oct += params.accent * 2.8f * sweep;                              // accent sweep
             oct += mods.cutoffOct + modOct;                                   // LIFE per-note + mod wheel / CC74
-            oct += lifeAmt * 0.35f * (veg - 0.6f);                            // VCA -> filter bleed (LIFE)
+            oct += lifeStr * 0.22f * (veg - 0.6f);                            // VCA -> filter bleed (LIFE)
             oct += slide.deviation() / 12.0f * lerpf (0.15f, 0.7f, longness); // long slides drag the filter
 
             // ---------------- resonance ----------------
             float res = resK + resMod + mods.resOffset;
             res += params.accent * 0.10f * sweep * resK;                      // accent tightens resonance
-            res += motion * (0.06f + 0.10f * lifeAmt) * (1.0f - longness);    // short slides kick resonance
+            res += motion * (0.06f + 0.07f * lifeStr) * (1.0f - longness);    // short slides kick resonance
 
             // ---------------- drive ----------------
-            float drv = driveK + mods.driveOffset;
+            float lifeDrv = mods.driveOffset;                                 // heat + slide bloom
+            lifeDrv += lifeStr * 0.10f * meg;                                 // transient bite (LIFE)
+            lifeDrv += motion * 0.06f * longness * lifeStr;                   // long slides swell
+            float drv = driveK + std::min (lifeDrv, 0.24f);                   // LIFE colours, it never takes over DRIVE
             drv += (noteAccent ? params.accent * 0.22f * sweep : 0.0f);       // accent pushes the circuit
-            drv += lifeAmt * 0.12f * meg;                                     // transient bite (LIFE)
-            drv += motion * 0.05f * longness * lifeAmt;                       // long slides swell
 
             const CircuitFrame frame = computeFrame (oct, res, drv, sweep);
             y = circuit.process (x, prevFrame, frame);
@@ -303,7 +317,7 @@ void AcidEngine::process (float* out, int numSamples) noexcept
         }
 
         const float amp = veg * (0.8f + 0.2f * noteVelocity) * accVca;
-        out[i] = y * amp * outGain * kOutputTrim;
+        out[i] = protect (y * amp * outGain * kOutputTrim);
     }
 }
 } // namespace dali::dsp

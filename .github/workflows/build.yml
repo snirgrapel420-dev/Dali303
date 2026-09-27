@@ -102,23 +102,23 @@ jobs:
           -DDALI303_BUILD_TOOLS=OFF
 
       # -k 0: keep going after the first failure, so one run shows ALL compile errors
+      # On failure the compiler errors are printed again at the very END of this
+      # step (and on the run's Summary page), so the last lines of the log are the errors.
       - name: Build
         shell: pwsh
         run: |
           cmake --build build --parallel 4 -- -k 0 2>&1 | Tee-Object -FilePath build-log.txt
-          if ($LASTEXITCODE -ne 0) { exit 1 }
-
-      # On failure: collect every compiler error in one place (also shown on the run's Summary page)
-      - name: Compile errors
-        if: failure()
-        shell: pwsh
-        run: |
-          if (-not (Test-Path build-log.txt)) { exit 0 }
-          $hits = Select-String -Path build-log.txt -Pattern '(: error|: fatal error|error C\d+|error LNK\d+|FAILED:)' -Context 2,1
-          $text = ($hits | ForEach-Object { $_.Context.PreContext + $_.Line + $_.Context.PostContext + '----' }) -join "`n"
-          Write-Host "================ COMPILE ERRORS ($(@($hits).Count)) ================"
-          Write-Host $text
-          "## Compile errors (${{ matrix.name }})`n``````n$text`n``````" | Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY
+          $code = $LASTEXITCODE
+          if ($code -ne 0) {
+            $hits = Select-String -Path build-log.txt -Pattern '(: error|: fatal error|error C\d+|error LNK\d+|FAILED:)' -Context 3,2
+            $text = ($hits | ForEach-Object { $_.Context.PreContext + $_.Line + $_.Context.PostContext + '----' }) -join "`n"
+            Write-Host ""
+            Write-Host "#################### COMPILE ERRORS: $(@($hits).Count) ####################"
+            Write-Host $text
+            Write-Host "#################### END OF COMPILE ERRORS ####################"
+            "## Compile errors (${{ matrix.name }})`n``````n$text`n``````" | Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY
+            exit 1
+          }
 
       - name: Upload build log
         if: failure()
